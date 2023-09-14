@@ -3,15 +3,18 @@
 pragma solidity ^0.8.7;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 error Dreamcatcher__NotOwner();
+error Dreamcatcher__NoProceeds();
+error Dreamcatcher__TransferFailed();
 error Dreamcatcher__PriceCannotBeZero();
 error Dreamcatcher__NotApprovedForMarketplace();
 error Dreamcatcher__NotListed(address nftAddress, uint256 tokenId);
 error Dreamcatcher__AlreadyListed(address nftAddress, uint256 tokenId);
 error Dreamcatcher__PriceNotMet(address nftAddress, uint256 tokenId, uint256 price);
 
-contract Dreamcatcher{
+contract Dreamcatcher is ReentrancyGuard{
 
     event ItemListed(
         address indexed seller,
@@ -27,7 +30,11 @@ contract Dreamcatcher{
         uint256 price
     );
 
-
+    event ItemCanceled(
+        address indexed seller,
+        address indexed nftAddress,
+        uint256 indexed tokenId        
+    );
     
     //A structure containing the info about a listed NFT
     struct Listing{
@@ -53,10 +60,10 @@ contract Dreamcatcher{
     }
 
     //Modifer to prevent dual listing of an already listed NFT
-    modifier notListed(
+    modifier notListed(        
         address nftAddress, 
-        uint256 tokenId, 
-        address owner
+        uint256 tokenId,
+        address owner        
     ){
         Listing memory listing = s_listings[nftAddress][tokenId];
         if(listing.price > 0){
@@ -105,6 +112,7 @@ contract Dreamcatcher{
     function buyNft(address nftAddress, uint256 tokenId)
         external
         payable
+        nonReentrant
         isListed(nftAddress, tokenId)
     {
         Listing memory listedItem = s_listings[nftAddress][tokenId];
@@ -121,5 +129,46 @@ contract Dreamcatcher{
         IERC721(nftAddress).safeTransferFrom(listedItem.seller, msg.sender, tokenId);
 
         emit ItemBought(msg.sender, nftAddress, tokenId, listedItem.price);
+    }
+
+    //Function to cancel NFT listing
+    function cancelLisiting(address nftAddress, uint256 tokenId)
+        external
+        isOwner(nftAddress, tokenId, msg.sender)
+        isListed(nftAddress, tokenId)
+    {
+        delete (s_listings[nftAddress][tokenId]);
+        emit ItemCanceled(msg.sender, nftAddress, tokenId);
+    }
+
+    //Function to update the details of a NFT listing
+    function updateListing(
+        address nftAddress,
+        uint256 tokenId,
+        uint256 newPrice
+    )external isListed(nftAddress, tokenId) isOwner(nftAddress, tokenId, msg.sender){
+        s_listings[nftAddress][tokenId].price = newPrice;
+        emit ItemListed(msg.sender, nftAddress, tokenId, newPrice);
+    }
+
+    //Function for a user to withdraw their eth
+    function withdrawProceeds() external {
+        uint256 proceeds = s_proceeds[msg.sender];
+        if(proceeds <= 0){
+            revert Dreamcatcher__NoProceeds();
+        }
+        s_proceeds[msg.sender] = 0;
+        (bool success, ) = payable(msg.sender).call{value: proceeds}("");
+        if(!success) {
+            revert Dreamcatcher__TransferFailed();
+        }
+    }
+
+    function getListing(address nftAddress, uint256 tokenId) external view returns (Listing memory){
+        return s_listings[nftAddress][tokenId];
+    }
+
+    function getProceeds(address seller) external view returns(uint256){
+        return s_proceeds[seller];
     }
 }
