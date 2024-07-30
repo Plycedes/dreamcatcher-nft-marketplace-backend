@@ -8,7 +8,7 @@ module.exports = async function ({ getNamedAccounts, deployments }) {
 
     args = [];
 
-    const dreamcatcher = await deploy("Dreamcatcher", {
+    const dreamcatcher = await deploy("dreamcatcher", {
         from: deployer,
         args: args,
         log: true,
